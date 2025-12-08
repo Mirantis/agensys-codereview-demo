@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pr-agent
+  namespace: agensys-demo-1
+  labels:
+    app: pr-agent
+    component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pr-agent
+  template:
+    metadata:
+      labels:
+        app: pr-agent
+        component: agent
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: pr-agent
+        image: ghcr.io/mirantis/agensys-codereview-demo/pr-agent:0.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: pr-agent-config
+        - secretRef:
+            name: api-secrets
+        workingDir: /work
+        volumeMounts:
+        - name: work-volume
+          mountPath: /work
+      volumes:
+      - name: work-volume
+        emptyDir: {}
+      restartPolicy: Always

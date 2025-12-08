@@ -1,0 +1,355 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	ListenAddr     string
+	LogLevel       string
+	OpenAIKey      string
+	Model          string
+	PromptDescribe string
+	PromptReview   string
+	PromptImprove  string
+}
+
+func loadConfig() Config {
+	addr := os.Getenv("LISTEN_ADDR")
+	if addr == "" {
+		addr = ":80"
+	}
+
+	model := os.Getenv("PR_AGENT_MODEL")
+	if model == "" {
+		model = "gpt-4o"
+	}
+
+	return Config{
+		ListenAddr:     addr,
+		LogLevel:       os.Getenv("LOG_LEVEL"),
+		OpenAIKey:      os.Getenv("OPENAI_API_KEY"),
+		Model:          model,
+		PromptDescribe: os.Getenv("PR_AGENT_PROMPT_DESCRIBE"),
+		PromptReview:   os.Getenv("PR_AGENT_PROMPT_REVIEW"),
+		PromptImprove:  os.Getenv("PR_AGENT_PROMPT_IMPROVE"),
+	}
+}
+
+type PRMetadata struct {
+	RepoOwner    string `json:"repo_owner"`
+	RepoName     string `json:"repo_name"`
+	PRNumber     int    `json:"pr_number"`
+	Title        string `json:"title"`
+	Body         string `json:"body"`
+	SourceBranch string `json:"source_branch"`
+	TargetBranch string `json:"target_branch"`
+	HeadSHA      string `json:"head_sha"`
+	LocalPath    string `json:"local_path"`
+}
+
+type PRAgentRequest struct {
+	Mode                string     `json:"mode"` // describe | review | improve
+	PR                  PRMetadata `json:"pr"`
+	DescriptionMarkdown string     `json:"description_markdown,omitempty"`
+}
+
+type PRAgentDescribeOut struct {
+	DescriptionMarkdown string `json:"description_markdown"`
+}
+
+type PRAgentReviewOut struct {
+	ReviewMarkdown string `json:"review_markdown"`
+}
+
+type PRAgentImproveOut struct {
+	ImprovedMarkdown string `json:"improved_markdown"`
+}
+
+type openAIChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type openAIChatRequest struct {
+	Model       string              `json:"model"`
+	Temperature float32             `json:"temperature"`
+	MaxTokens   int                 `json:"max_tokens"`
+	Messages    []openAIChatMessage `json:"messages"`
+}
+
+type openAIChatResponse struct {
+	Choices []struct {
+		Message openAIChatMessage `json:"message"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func callLLM(ctx context.Context, cfg Config, mode string, sys string, user string) (string, error) {
+
+	log.Printf("🧪================ LLM CALL DEBUG =================")
+	log.Printf("🧪 Mode: %s", mode)
+	log.Printf("🧪 Model requested: %s", cfg.Model)
+
+	// -----------------------------------------------------
+	// VALIDATE MODEL - FIXED VERSION
+	// -----------------------------------------------------
+	validModels := map[string]bool{
+		"gpt-4o":              true,
+		"gpt-4o-mini":         true,
+		"gpt-4-turbo":         true,
+		"gpt-4-turbo-preview": true,
+		"gpt-4":               true,
+		"gpt-3.5-turbo":       true,
+	}
+
+	if !validModels[cfg.Model] {
+		log.Printf("❌ INVALID MODEL NAME: %s", cfg.Model)
+		log.Printf("✔️ Allowed: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4-turbo-preview, gpt-4, gpt-3.5-turbo")
+		return "", fmt.Errorf("invalid model: %s", cfg.Model)
+	}
+	log.Printf("✔️ Model validated")
+
+	if cfg.OpenAIKey == "" {
+		log.Printf("❌ Missing OPENAI_API_KEY")
+		return "", fmt.Errorf("missing OPENAI_API_KEY")
+	}
+	log.Printf("✔️ OPENAI_API_KEY is present")
+
+	log.Printf("🌐 DNS: resolving api.openai.com ...")
+	addrs, dnsErr := net.LookupHost("api.openai.com")
+	if dnsErr != nil {
+		log.Printf("❌ DNS failed: %v", dnsErr)
+		return "", dnsErr
+	}
+	log.Printf("✔️ DNS OK → %v", addrs)
+
+	log.Printf("🌐 TCP: connecting to api.openai.com:443 ...")
+	conn, tcpErr := net.DialTimeout("tcp", "api.openai.com:443", 3*time.Second)
+	if tcpErr != nil {
+		log.Printf("❌ TCP failed: %v", tcpErr)
+		return "", tcpErr
+	}
+	conn.Close()
+	log.Printf("✔️ TCP connectivity OK")
+
+	log.Printf("🧪 Sys prompt size: %d chars", len(sys))
+	log.Printf("🧪 User prompt size: %d chars", len(user))
+
+	reqObj := openAIChatRequest{
+		Model:       cfg.Model,
+		Temperature: 0.3,
+		MaxTokens:   2000,
+		Messages: []openAIChatMessage{
+			{Role: "system", Content: sys},
+			{Role: "user", Content: user},
+		},
+	}
+
+	body, _ := json.Marshal(reqObj)
+
+	log.Printf("📤 OpenAI Request JSON (first 400 chars):\n%s",
+		string(body[:min(400, len(body))]))
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		"POST",
+		"https://api.openai.com/v1/chat/completions",
+		strings.NewReader(string(body)),
+	)
+	if err != nil {
+		log.Printf("❌ Failed creating request: %v", err)
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+cfg.OpenAIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	log.Printf("🚀 Calling OpenAI model=%s mode=%s ...", cfg.Model, mode)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("❌ Network error: %v", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	log.Printf("🌐 OpenAI returned status: %d", resp.StatusCode)
+
+	if resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ OpenAI Error Body:\n%s", string(errBody))
+		return "", fmt.Errorf("openai error: %d", resp.StatusCode)
+	}
+
+	var parsed openAIChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		log.Printf("❌ Decode error: %v", err)
+		return "", err
+	}
+
+	if len(parsed.Choices) == 0 {
+		log.Printf("❌ Empty choices from OpenAI")
+		return "", fmt.Errorf("empty OpenAI response")
+	}
+
+	out := parsed.Choices[0].Message.Content
+
+	// Log token usage
+	log.Printf("📊 Token Usage: prompt=%d, completion=%d, total=%d",
+		parsed.Usage.PromptTokens,
+		parsed.Usage.CompletionTokens,
+		parsed.Usage.TotalTokens)
+
+	log.Printf("📥 OpenAI Response Preview:\n%s",
+		out[:min(300, len(out))])
+
+	log.Printf("🧪============== END LLM CALL DEBUG ==============")
+
+	return out, nil
+}
+
+func prAgentHandler(cfg Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		raw, _ := io.ReadAll(r.Body)
+		log.Printf("📥 PR-Agent incoming request:\n%s\n", string(raw))
+
+		var req PRAgentRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			http.Error(w, "invalid JSON", 400)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+
+		switch req.Mode {
+
+		case "describe":
+			sys := cfg.PromptDescribe
+			if sys == "" {
+				sys = "You are a Senior Engineer writing a detailed PR description."
+			}
+
+			userPrompt := fmt.Sprintf(`
+				Repository: %s/%s
+				PR #%d
+				Title: %s
+				Body: %s
+				Branch: %s → %s
+				LocalPath: %s
+				`,
+				req.PR.RepoOwner, req.PR.RepoName, req.PR.PRNumber,
+				req.PR.Title, req.PR.Body,
+				req.PR.SourceBranch, req.PR.TargetBranch,
+				req.PR.LocalPath,
+			)
+
+			out, err := callLLM(ctx, cfg, "describe", sys, userPrompt)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+
+			json.NewEncoder(w).Encode(PRAgentDescribeOut{DescriptionMarkdown: out})
+			return
+
+		case "review":
+			sys := cfg.PromptReview
+			if sys == "" {
+				sys = "You are a Staff Engineer performing a deep code review."
+			}
+
+			userPrompt := fmt.Sprintf(`
+				Repository: %s/%s
+				PR #%d
+				Description:
+				%s
+
+				Local path: %s
+`,
+				req.PR.RepoOwner, req.PR.RepoName, req.PR.PRNumber,
+				req.DescriptionMarkdown,
+				req.PR.LocalPath,
+			)
+
+			out, err := callLLM(ctx, cfg, "review", sys, userPrompt)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+
+			json.NewEncoder(w).Encode(PRAgentReviewOut{ReviewMarkdown: out})
+			return
+
+		case "improve":
+			sys := cfg.PromptImprove
+			if sys == "" {
+				sys = "You are a Senior Engineer improving code quality and security."
+			}
+
+			userPrompt := fmt.Sprintf(`
+				Repository: %s/%s
+				PR #%d
+				Description:
+				%s
+
+				Local path: %s
+
+				Please analyze the code and provide improvements.
+				`,
+				req.PR.RepoOwner, req.PR.RepoName, req.PR.PRNumber,
+				req.DescriptionMarkdown,
+				req.PR.LocalPath,
+			)
+
+			out, err := callLLM(ctx, cfg, "improve", sys, userPrompt)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+
+			json.NewEncoder(w).Encode(PRAgentImproveOut{ImprovedMarkdown: out})
+			return
+
+		default:
+			http.Error(w, "unknown mode (use: describe, review, improve)", 400)
+		}
+	}
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func main() {
+	cfg := loadConfig()
+
+	http.HandleFunc("/post", prAgentHandler(cfg))
+	http.HandleFunc("/health", healthHandler)
+
+	log.Printf("🚀 PR-Review Agent running on %s", cfg.ListenAddr)
+	log.Printf("🤖 Using model: %s", cfg.Model)
+	log.Fatal(http.ListenAndServe(cfg.ListenAddr, nil))
+}

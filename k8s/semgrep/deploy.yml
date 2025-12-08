@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: semgrep-service
+  namespace: agensys-demo-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: semgrep-service
+  template:
+    metadata:
+      labels:
+        app: semgrep-service
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: semgrep-service
+        image: ghcr.io/mirantis/agensys-codereview-demo/semgrep-server:0.1
+        envFrom:
+        - secretRef:
+            name: api-secrets
+        ports:
+        - containerPort: 80
+

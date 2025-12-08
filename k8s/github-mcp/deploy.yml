@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-mcp-server
+  namespace: agensys-demo-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-mcp-server
+  template:
+    metadata:
+      labels:
+        app: github-mcp-server
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: github-mcp-server
+        image: ghcr.io/mirantis/agensys-codereview-demo/github-mcp-server:0.1
+        envFrom:
+        - configMapRef:
+            name: github-mcp-config
+        - secretRef:
+            name: api-secrets
+        ports:
+        - containerPort: 80
+

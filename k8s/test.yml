@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: curl-debug
+  namespace: agensys-demo-1
+spec:
+  containers:
+  - name: curl-debug
+    image: curlimages/curl:latest
+    command: ["/bin/sh", "-c", "sleep 3600"]
+    envFrom:
+    - configMapRef:
+        name: github-mcp-config
+    - secretRef:
+        name: api-secrets
+  restartPolicy: Never
+
+
+# Test:
+
+# kubectl exec -it github-mcp-debug -n agensys-demo-1 -- /bin/sh
+
+# Inside the container, run the following command to test connectivity:
+
+# # Health check:
+# curl http://github-mcp-server:80/health
+
+
+
+# # Simple format
+# curl -v http://github-mcp-server:80/comment \
+#   -H "Content-Type: application/json" \
+#   -d '{"pr":12,"body":"Test simple format"}'
+
+# # Orchestrator format
+# curl -v http://github-mcp-server:80/comment \
+#   -H "Content-Type: application/json" \
+#   -d '{"owner":"PrashantR30","repo":"demo-website","pr":12,"body":"Test orchestrator format"}'
+
+
+# # List pull requests
+# curl -H "Authorization: token $GITHUB_TOKEN" \
+#   -H "Accept: application/vnd.github.v3+json" \
+#   https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls
+
+# # Get specific PR metadata (PR #12)
+# curl -H "Authorization: token $GITHUB_TOKEN" \
+#   -H "Accept: application/vnd.github.v3+json" \
+#   https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/pulls/12
+
+# # Get PR comments
+# curl -H "Authorization: token $GITHUB_TOKEN" \
+#   -H "Accept: application/vnd.github.v3+json" \
+#   https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/issues/12/comments

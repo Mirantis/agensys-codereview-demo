@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: agensys-demo-1
+  labels:
+    app: orchestrator
+    component: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+        component: orchestrator
+    spec:
+      imagePullSecrets:
+      - name: ghcr-secret
+      containers:
+      - name: orchestrator
+        image: ghcr.io/mirantis/agensys-codereview-demo/orchestrator:0.1
+        imagePullPolicy: Always
+        command: ["/app/orchestrator"]
+        ports:
+        - containerPort: 8085
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: orchestrator-config
+        - secretRef:
+            name: api-secrets
+        workingDir: /work
+        volumeMounts:
+        - name: work-volume
+          mountPath: /work
+      volumes:
+      - name: work-volume
+        emptyDir: {}
+      restartPolicy: Always

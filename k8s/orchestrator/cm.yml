@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orchestrator-config
+  namespace: agensys-demo-1
+data:
+  LISTEN_ADDR: ":8085"
+  LOG_LEVEL: "debug"
+  HTTP_TIMEOUT: "15m"
+  PR_AGENT_URL: "http://pr-agent:80/post"
+  SEMGREP_MCP_URL: "https://mcp.semgrep.ai/mcp"
+  SUMMARIZER_URL: "http://summarizer-agent:80/post"
+  GITHUB_MCP_URL: "http://github-mcp-server:80/comment"
+  SEMGREP_SERVICE_URL: "http://semgrep-service:80"
+
