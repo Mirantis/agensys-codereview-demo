@@ -1,0 +1,76 @@
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-orchestrator-to-pr-agent
+  namespace: agensys-demo-1
+spec:
+  selector:
+    matchLabels:
+      app: pr-agent
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/agensys-demo-1/sa/orchestrator-agent"]
+    to:
+    - operation:
+        ports: ["8080"]
+        methods: ["POST"]
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-orchestrator-to-mcp-scanning
+  namespace: agensys-demo-1
+spec:
+  selector:
+    matchLabels:
+      app: mcp-code-scanning
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/agensys-demo-1/sa/orchestrator-agent"]
+    to:
+    - operation:
+        ports: ["3000"]
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-orchestrator-to-summary-agent
+  namespace: agensys-demo-1
+spec:
+  selector:
+    matchLabels:
+      app: executive-summary-agent
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/agensys-demo-1/sa/orchestrator-agent"]
+    to:
+    - operation:
+        ports: ["8080"]
+        methods: ["POST"]
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-orchestrator-to-github-mcp
+  namespace: agensys-demo-1
+spec:
+  selector:
+    matchLabels:
+      app: github-mcp-server
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/agensys-demo-1/sa/orchestrator-agent"]
+    to:
+    - operation:
+        ports: ["3000"]

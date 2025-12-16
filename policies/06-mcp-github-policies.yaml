@@ -1,0 +1,34 @@
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: github-api
+  namespace: agensys-demo-1
+spec:
+  hosts:
+  - "api.github.com"
+  ports:
+  - number: 443
+    name: https
+    protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-github-mcp-to-github
+  namespace: agensys-demo-1
+spec:
+  selector:
+    matchLabels:
+      istio: ztunnel
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/agensys-demo-1/sa/github-mcp-server"]
+    to:
+    - operation:
+        hosts: ["api.github.com"]
+        ports: ["443"]
