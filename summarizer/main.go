@@ -14,11 +14,18 @@ import (
 	"time"
 )
 
+const (
+	// DefaultAnthropicAPIURL is the default Anthropic API endpoint
+	// Can be overridden via ANTHROPIC_API_URL env var to use a proxy
+	DefaultAnthropicAPIURL = "https://api.anthropic.com/v1/messages"
+)
+
 type Config struct {
 	ListenAddr string
 
-	AnthropicKey string
-	Model        string
+	AnthropicKey    string
+	AnthropicAPIURL string
+	Model           string
 
 	SummarizerPrompt string
 }
@@ -34,6 +41,11 @@ func loadConfig() Config {
 		model = "claude-sonnet-4-20250514"
 	}
 
+	apiURL := os.Getenv("ANTHROPIC_API_URL")
+	if apiURL == "" {
+		apiURL = DefaultAnthropicAPIURL
+	}
+
 	prompt := os.Getenv("SUMMARIZER_PROMPT")
 	if strings.TrimSpace(prompt) == "" {
 		prompt = defaultSummarizerPrompt
@@ -42,6 +54,7 @@ func loadConfig() Config {
 	return Config{
 		ListenAddr:       addr,
 		AnthropicKey:     os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicAPIURL:  apiURL,
 		Model:            model,
 		SummarizerPrompt: prompt,
 	}
@@ -124,8 +137,16 @@ func doConnectivityCheck() {
 }
 
 func callLLM(ctx context.Context, cfg Config, systemPrompt, userPrompt string) (string, error) {
-	if cfg.AnthropicKey == "" {
-		return "", fmt.Errorf("missing ANTHROPIC_API_KEY")
+	// Check if we're using a proxy (custom API URL)
+	isUsingProxy := cfg.AnthropicAPIURL != DefaultAnthropicAPIURL
+	if isUsingProxy {
+		log.Printf("🔄 Using proxy for Anthropic API: %s (ANTHROPIC_API_KEY not required)", cfg.AnthropicAPIURL)
+	}
+
+	// API key is required only when calling Anthropic directly
+	// When using a proxy, the proxy handles authentication
+	if cfg.AnthropicKey == "" && !isUsingProxy {
+		return "", fmt.Errorf("missing ANTHROPIC_API_KEY (required when not using a proxy)")
 	}
 
 	reqData := anthropicRequest{
@@ -149,14 +170,18 @@ func callLLM(ctx context.Context, cfg Config, systemPrompt, userPrompt string) (
 	log.Printf("%s", out)
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		"https://api.anthropic.com/v1/messages",
+		cfg.AnthropicAPIURL,
 		bytes.NewReader(body),
 	)
 	if err != nil {
 		return "", err
 	}
 
-	req.Header.Set("x-api-key", cfg.AnthropicKey)
+	// Only set x-api-key header if we have an API key
+	// When using a proxy, the proxy adds authentication
+	if cfg.AnthropicKey != "" {
+		req.Header.Set("x-api-key", cfg.AnthropicKey)
+	}
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("Content-Type", "application/json")
 
@@ -305,14 +330,21 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	cfg := loadConfig()
 
-	if cfg.AnthropicKey == "" {
+	isUsingProxy := cfg.AnthropicAPIURL != DefaultAnthropicAPIURL
+	if cfg.AnthropicKey == "" && !isUsingProxy {
 		log.Printf("⚠️ Warning: ANTHROPIC_API_KEY is empty — summarizer will fail.")
+	} else if cfg.AnthropicKey == "" && isUsingProxy {
+		log.Printf("ℹ️ Using proxy mode: ANTHROPIC_API_KEY not required, proxy handles authentication")
 	}
 
 	http.HandleFunc("/post", summarizerHandler(cfg))
 	http.HandleFunc("/health", healthHandler)
 
-	log.Printf("🚀 Summarizer Agent running on %s (model=%s)", cfg.ListenAddr, cfg.Model)
+	proxyInfo := ""
+	if isUsingProxy {
+		proxyInfo = " [PROXY MODE]"
+	}
+	log.Printf("🚀 Summarizer Agent running on %s (model=%s, api_url=%s)%s", cfg.ListenAddr, cfg.Model, cfg.AnthropicAPIURL, proxyInfo)
 	if err := http.ListenAndServe(cfg.ListenAddr, nil); err != nil {
 		log.Fatalf("Summarizer failed: %v", err)
 	}
