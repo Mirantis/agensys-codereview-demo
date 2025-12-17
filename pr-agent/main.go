@@ -18,10 +18,17 @@ import (
    CONFIG
 ===================================================================================== */
 
+const (
+	// DefaultOpenAIAPIURL is the default OpenAI API endpoint
+	// Can be overridden via OPENAI_API_URL env var to use a proxy
+	DefaultOpenAIAPIURL = "https://api.openai.com/v1/chat/completions"
+)
+
 type Config struct {
 	ListenAddr     string
 	LogLevel       string
 	OpenAIKey      string
+	OpenAIAPIURL   string
 	Model          string
 	Timeout        int // Timeout in seconds
 	MaxTokens      int // Max tokens for OpenAI response
@@ -56,10 +63,16 @@ func loadConfig() Config {
 		model = "gpt-4o"
 	}
 
+	apiURL := os.Getenv("OPENAI_API_URL")
+	if apiURL == "" {
+		apiURL = DefaultOpenAIAPIURL
+	}
+
 	return Config{
 		ListenAddr:     addr,
 		LogLevel:       os.Getenv("LOG_LEVEL"),
 		OpenAIKey:      os.Getenv("OPENAI_API_KEY"),
+		OpenAIAPIURL:   apiURL,
 		Model:          model,
 		Timeout:        timeout,
 		MaxTokens:      maxTokens,
@@ -184,10 +197,17 @@ func callLLM(ctx context.Context, cfg Config, mode string, sys string, user stri
 		log.Printf("⏱️ OpenAI call completed in: %.2f seconds", duration.Seconds())
 	}()
 
+	// Check if we're using a proxy (custom API URL)
+	isUsingProxy := cfg.OpenAIAPIURL != DefaultOpenAIAPIURL
+	if isUsingProxy {
+		log.Printf("🔄 Using proxy for OpenAI API: %s (OPENAI_API_KEY not required)", cfg.OpenAIAPIURL)
+	}
+
 	log.Printf("🧪================ LLM CALL DEBUG =================")
 	log.Printf("🧪 Mode: %s", mode)
 	log.Printf("🧪 Model: %s", cfg.Model)
 	log.Printf("🧪 Max Tokens: %d", cfg.MaxTokens)
+	log.Printf("🧪 API URL: %s", cfg.OpenAIAPIURL)
 
 	// -----------------------------------------------------
 	// VALIDATE MODEL
@@ -208,35 +228,43 @@ func callLLM(ctx context.Context, cfg Config, mode string, sys string, user stri
 
 	// -----------------------------------------------------
 	// CHECK OPENAI KEY
+	// API key is required only when calling OpenAI directly
+	// When using a proxy, the proxy handles authentication
 	// -----------------------------------------------------
-	if cfg.OpenAIKey == "" {
-		log.Printf("❌ Missing OPENAI_API_KEY")
-		return "", fmt.Errorf("missing OPENAI_API_KEY")
+	if cfg.OpenAIKey == "" && !isUsingProxy {
+		log.Printf("❌ Missing OPENAI_API_KEY (required when not using a proxy)")
+		return "", fmt.Errorf("missing OPENAI_API_KEY (required when not using a proxy)")
 	}
-	log.Printf("✔️ OPENAI_API_KEY is present")
+	if cfg.OpenAIKey != "" {
+		log.Printf("✔️ OPENAI_API_KEY is present")
+	} else {
+		log.Printf("✔️ Using proxy mode - API key will be added by proxy")
+	}
 
 	// -----------------------------------------------------
-	// DNS CHECK
+	// DNS CHECK (only when not using proxy)
 	// -----------------------------------------------------
-	log.Printf("🌐 DNS: resolving api.openai.com ...")
-	addrs, dnsErr := net.LookupHost("api.openai.com")
-	if dnsErr != nil {
-		log.Printf("❌ DNS failed: %v", dnsErr)
-		return "", dnsErr
-	}
-	log.Printf("✔️ DNS OK → %v", addrs)
+	if !isUsingProxy {
+		log.Printf("🌐 DNS: resolving api.openai.com ...")
+		addrs, dnsErr := net.LookupHost("api.openai.com")
+		if dnsErr != nil {
+			log.Printf("❌ DNS failed: %v", dnsErr)
+			return "", dnsErr
+		}
+		log.Printf("✔️ DNS OK → %v", addrs)
 
-	// -----------------------------------------------------
-	// TCP CHECK
-	// -----------------------------------------------------
-	log.Printf("🌐 TCP: connecting to api.openai.com:443 ...")
-	conn, tcpErr := net.DialTimeout("tcp", "api.openai.com:443", 3*time.Second)
-	if tcpErr != nil {
-		log.Printf("❌ TCP failed: %v", tcpErr)
-		return "", tcpErr
+		// -----------------------------------------------------
+		// TCP CHECK (only when not using proxy)
+		// -----------------------------------------------------
+		log.Printf("🌐 TCP: connecting to api.openai.com:443 ...")
+		conn, tcpErr := net.DialTimeout("tcp", "api.openai.com:443", 3*time.Second)
+		if tcpErr != nil {
+			log.Printf("❌ TCP failed: %v", tcpErr)
+			return "", tcpErr
+		}
+		conn.Close()
+		log.Printf("✔️ TCP connectivity OK")
 	}
-	conn.Close()
-	log.Printf("✔️ TCP connectivity OK")
 
 	// -----------------------------------------------------
 	// BUILD REQUEST
@@ -262,7 +290,7 @@ func callLLM(ctx context.Context, cfg Config, mode string, sys string, user stri
 	req, err := http.NewRequestWithContext(
 		ctx,
 		"POST",
-		"https://api.openai.com/v1/chat/completions",
+		cfg.OpenAIAPIURL,
 		strings.NewReader(string(body)),
 	)
 	if err != nil {
@@ -270,7 +298,11 @@ func callLLM(ctx context.Context, cfg Config, mode string, sys string, user stri
 		return "", err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+cfg.OpenAIKey)
+	// Only set Authorization header if we have an API key
+	// When using a proxy, the proxy adds authentication
+	if cfg.OpenAIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.OpenAIKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	// -----------------------------------------------------
@@ -432,11 +464,21 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	cfg := loadConfig()
 
+	isUsingProxy := cfg.OpenAIAPIURL != DefaultOpenAIAPIURL
+	if cfg.OpenAIKey == "" && !isUsingProxy {
+		log.Printf("⚠️ Warning: OPENAI_API_KEY is empty — PR-Agent will fail.")
+	} else if cfg.OpenAIKey == "" && isUsingProxy {
+		log.Printf("ℹ️ Using proxy mode: OPENAI_API_KEY not required, proxy handles authentication")
+	}
+
 	http.HandleFunc("/post", prAgentHandler(cfg))
 	http.HandleFunc("/health", healthHandler)
 
-	log.Printf("🚀 PR-Review Agent running on %s", cfg.ListenAddr)
-	log.Printf("📋 Model: %s", cfg.Model)
+	proxyInfo := ""
+	if isUsingProxy {
+		proxyInfo = " [PROXY MODE]"
+	}
+	log.Printf("🚀 PR-Review Agent running on %s (model=%s, api_url=%s)%s", cfg.ListenAddr, cfg.Model, cfg.OpenAIAPIURL, proxyInfo)
 	log.Printf("⏱️ Base Timeout: %d seconds", cfg.Timeout)
 	log.Printf("🎯 Max Tokens: %d", cfg.MaxTokens)
 	log.Fatal(http.ListenAndServe(cfg.ListenAddr, nil))
