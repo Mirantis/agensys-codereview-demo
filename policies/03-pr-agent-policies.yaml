@@ -1,0 +1,34 @@
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: openai-api
+  namespace: agensys-demo-1
+spec:
+  hosts:
+  - "api.openai.com"
+  ports:
+  - number: 443
+    name: https
+    protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-pr-agent-to-openai
+  namespace: agensys-demo-1
+spec:
+  selector:
+    matchLabels:
+      istio: ztunnel
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/agensys-demo-1/sa/pr-agent"]
+    to:
+    - operation:
+        hosts: ["api.openai.com"]
+        ports: ["443"]

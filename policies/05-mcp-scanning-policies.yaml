@@ -1,0 +1,34 @@
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: semgrep-cloud
+  namespace: agensys-demo-1
+spec:
+  hosts:
+  - "semgrep.dev"
+  ports:
+  - number: 443
+    name: https
+    protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-mcp-scanning-to-semgrep
+  namespace: agensys-demo-1
+spec:
+  selector:
+    matchLabels:
+      istio: ztunnel
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/agensys-demo-1/sa/mcp-code-scanning"]
+    to:
+    - operation:
+        hosts: ["semgrep.dev"]
+        ports: ["443"]
