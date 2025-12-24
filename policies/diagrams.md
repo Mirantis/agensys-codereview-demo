@@ -230,7 +230,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-    START([PR Agent sends request<br/>to Summary Agent])
+    START([Orchestrator sends request<br/>to Summary Agent])
     
     TPROXY{TPROXY intercepts<br/>in pod network namespace}
     
@@ -238,15 +238,15 @@ flowchart TB
     
     EXTRACT[Extract Source Identity:<br/>SPIFFE ID from pod's<br/>ServiceAccount]
     
-    EGRESS_POL{Check Egress Policy:<br/>Can pr-agent call<br/>summary-agent?}
+    EGRESS_POL{Check Egress Policy:<br/>Can orchestrator-agent call<br/>summary-agent?}
     
     HBONE[Establish HBONE tunnel<br/>to Ztunnel Node 2<br/>with mTLS]
     
     ZT2_RCV[Ztunnel Node 2<br/>receives via HBONE]
     
-    INGRESS_POL{Check Ingress Policy:<br/>Is pr-agent allowed?}
+    INGRESS_POL{Check Ingress Policy:<br/>Is orchestrator-agent allowed?}
     
-    AUTHZ_CHECK[Check AuthorizationPolicy:<br/>allow-orchestrator-to-summary-agent<br/>Required: orchestrator-agent<br/>Actual: pr-agent]
+    AUTHZ_CHECK[Check AuthorizationPolicy:<br/>allow-orchestrator-to-summary-agent<br/>Required: orchestrator-agent<br/>Actual: orchestrator-agent]
     
     DENY[❌ RBAC_ACCESS_DENIED<br/>Connection dropped<br/>Logged to ztunnel]
     
@@ -256,7 +256,7 @@ flowchart TB
     
     RESPONSE[Response flows back<br/>through same tunnel]
     
-    END([PR Agent receives<br/>response or timeout])
+    END([Orchestrator receives<br/>response or timeout])
 
     START --> TPROXY
     TPROXY --> ZT1_RCV
