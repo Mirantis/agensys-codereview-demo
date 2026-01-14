@@ -66,15 +66,17 @@ func (o *Orchestrator) prWebhookHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	meta := intm.PRMetadata{
-		RepoOwner:    event.Repository.Owner.Login,
-		RepoName:     event.Repository.Name,
-		PRNumber:     event.Number,
-		HeadSHA:      event.PullRequest.Head.SHA,
-		Title:        event.PullRequest.Title,
-		Body:         event.PullRequest.Body,
-		SourceBranch: event.PullRequest.Head.Ref,
-		TargetBranch: event.PullRequest.Base.Ref,
-		URL:          event.PullRequest.HTMLURL,
+		RepoOwner:     event.Repository.Owner.Login,
+		RepoName:      event.Repository.Name,
+		HeadRepoOwner: event.PullRequest.Head.Repo.Owner.Login,
+		HeadRepoName:  event.PullRequest.Head.Repo.Name,
+		PRNumber:      event.Number,
+		HeadSHA:       event.PullRequest.Head.SHA,
+		Title:         event.PullRequest.Title,
+		Body:          event.PullRequest.Body,
+		SourceBranch:  event.PullRequest.Head.Ref,
+		TargetBranch:  event.PullRequest.Base.Ref,
+		URL:           event.PullRequest.HTMLURL,
 	}
 
 	// Use context.Background() instead of r.Context()
