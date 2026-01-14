@@ -31,10 +31,11 @@ func PrepareRepository(
 
 	_ = os.RemoveAll(dest)
 
+	// Use head repo (fork) for cloning - this is where the source branch exists
 	cloneURL := fmt.Sprintf(
 		"https://github.com/%s/%s.git",
-		meta.RepoOwner,
-		meta.RepoName,
+		meta.HeadRepoOwner,
+		meta.HeadRepoName,
 	)
 
 	log.Debug().

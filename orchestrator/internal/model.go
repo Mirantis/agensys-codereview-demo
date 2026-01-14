@@ -11,16 +11,18 @@ type Config struct {
 }
 
 type PRMetadata struct {
-	RepoOwner    string `json:"repo_owner"`
-	RepoName     string `json:"repo_name"`
-	PRNumber     int    `json:"pr_number"`
-	HeadSHA      string `json:"head_sha"`
-	Title        string `json:"title"`
-	Body         string `json:"body"`
-	SourceBranch string `json:"source_branch"`
-	TargetBranch string `json:"target_branch"`
-	URL          string `json:"url,omitempty"`
-	LocalPath    string `json:"local_path"`
+	RepoOwner     string `json:"repo_owner"`
+	RepoName      string `json:"repo_name"`
+	HeadRepoOwner string `json:"head_repo_owner"` // Fork owner (for cross-repo PRs)
+	HeadRepoName  string `json:"head_repo_name"`  // Fork name (for cross-repo PRs)
+	PRNumber      int    `json:"pr_number"`
+	HeadSHA       string `json:"head_sha"`
+	Title         string `json:"title"`
+	Body          string `json:"body"`
+	SourceBranch  string `json:"source_branch"`
+	TargetBranch  string `json:"target_branch"`
+	URL           string `json:"url,omitempty"`
+	LocalPath     string `json:"local_path"`
 }
 
 type PRAgentDescribeRequest struct {
