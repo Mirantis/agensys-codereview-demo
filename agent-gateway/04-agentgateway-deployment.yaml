@@ -1,0 +1,99 @@
+---
+# ============================================================================
+# AGENTGATEWAY DEPLOYMENT
+# ============================================================================
+# Deploys the AgentGateway proxy with environment variables from secrets
+# ============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgateway
+  namespace: agensys-codereview-demo
+  labels:
+    app: agensys-codereview-demo
+    app.kubernetes.io/component: agentgateway
+    app.kubernetes.io/name: agentgateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agensys-codereview-demo
+      app.kubernetes.io/component: agentgateway
+      app.kubernetes.io/name: agentgateway
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15020"
+        prometheus.io/path: "/metrics"
+      labels:
+        app: agensys-codereview-demo
+        app.kubernetes.io/component: agentgateway
+        app.kubernetes.io/name: agentgateway
+    spec:
+      containers:
+      - name: agentgateway
+        image: ghcr.io/agentgateway/agentgateway:0.11.0-alpha.5e5533a2c6bfb8914d69662b06aef48b4e7b85d5
+        imagePullPolicy: Always
+        args:
+          - "-f"
+          - "/etc/agentgateway/config.yaml"
+        env:
+          - name: RUST_LOG
+            value: "info,agentgateway::proxy::httpproxy=debug,agentgateway::llm=debug"
+        envFrom:
+          - secretRef:
+              name: api-secrets
+        ports:
+          - name: proxy
+            containerPort: 9080
+            protocol: TCP
+          - name: admin-ui
+            containerPort: 15000
+            protocol: TCP
+          - name: metrics
+            containerPort: 15020
+            protocol: TCP
+          - name: health
+            containerPort: 15021
+            protocol: TCP
+          - name: ai-anthropic
+            containerPort: 9081
+            protocol: TCP
+          - name: ai-openai
+            containerPort: 9082
+            protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz/ready
+            port: 15021
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz/ready
+            port: 15021
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+          - name: config
+            mountPath: /etc/agentgateway
+            readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: agentgateway-config

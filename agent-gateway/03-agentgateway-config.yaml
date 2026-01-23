@@ -1,0 +1,172 @@
+---
+# ============================================================================
+# AGENTGATEWAY CONFIGURATION
+# ============================================================================
+# Multi-port listener configuration for AgentGateway
+# Port 9080: Main orchestrator proxy
+# Port 9081: Anthropic AI proxy
+# Port 9082: OpenAI proxy
+# Port 9083: MCP server proxy (optional - add if using MCP servers)
+# Port 15000: Admin UI
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway-config
+  namespace: agensys-codereview-demo
+  labels:
+    app: agensys-codereview-demo
+    app.kubernetes.io/component: agentgateway
+    app.kubernetes.io/name: agentgateway
+data:
+  config.yaml: |
+    # Listener 1: Main orchestrator proxy (port 9080)
+    binds:
+    - port: 9080
+      listeners:
+        # Route 1: Webhook endpoint with secret filtering
+        - routes:
+            - matches:
+                - path:
+                    pathPrefix: /webhook
+              policies:
+                # Block requests containing sensitive secrets
+                authorization:
+                  rules:
+                    - |
+                      !string(request.body).contains("sk-proj-") &&
+                      !string(request.body).contains("sk-ant-") &&
+                      !string(request.body).contains("ghp_") &&
+                      !string(request.body).contains("OPENAI_API_KEY") &&
+                      !string(request.body).contains("ANTHROPIC_API_KEY") &&
+                      !string(request.body).contains("GITHUB_TOKEN")
+                cors:
+                  allowHeaders:
+                    - '*'
+                    - content-type
+                    - x-github-event
+                    - x-github-delivery
+                    - x-hub-signature-256
+                  allowMethods:
+                    - GET
+                    - POST
+                    - OPTIONS
+                  allowOrigins:
+                    - '*'
+                localRateLimit:
+                  - fillInterval: 60s
+                    maxTokens: 5
+                    tokensPerFill: 5
+              backends:
+                - host: agensys-codereview-demo-agensys-app-orchestrator.agensys-codereview-demo.svc.cluster.local:8085
+            
+            # Route 2: Health check endpoint
+            - matches:
+                - path:
+                    pathPrefix: /healthz
+              policies:
+                cors:
+                  allowMethods:
+                    - GET
+                    - OPTIONS
+                  allowOrigins:
+                    - '*'
+              backends:
+                - host: agensys-codereview-demo-agensys-app-orchestrator.agensys-codereview-demo.svc.cluster.local:8085
+            
+            # Route 3: Default catch-all route
+            - matches:
+                - path:
+                    pathPrefix: /
+              policies:
+                cors:
+                  allowHeaders:
+                    - '*'
+                    - content-type
+                  allowMethods:
+                    - GET
+                    - POST
+                    - OPTIONS
+                  allowOrigins:
+                    - '*'
+                localRateLimit:
+                  - fillInterval: 60s
+                    maxTokens: 20
+                    tokensPerFill: 20
+              backends:
+                - host: agensys-codereview-demo-agensys-app-orchestrator.agensys-codereview-demo.svc.cluster.local:8085
+
+    # Listener 2: Anthropic AI proxy (port 9081)
+    - port: 9081
+      listeners:
+        - routes:
+            - policies:
+                # Block secrets and prompt injection attempts
+                authorization:
+                  rules:
+                    - |
+                      !string(request.body).contains("sk-proj-") &&
+                      !string(request.body).contains("sk-ant-") &&
+                      !string(request.body).contains("ghp_") &&
+                      !string(request.body).contains("OPENAI_API_KEY") &&
+                      !string(request.body).contains("ANTHROPIC_API_KEY") &&
+                      !string(request.body).contains("GITHUB_TOKEN") &&
+                      !string(request.body).contains("ignore previous instructions") &&
+                      !string(request.body).contains("ignore all previous") &&
+                      !string(request.body).contains("disregard your instructions")
+                backendAuth:
+                  key: $ANTHROPIC_API_KEY
+                localRateLimit:
+                  - fillInterval: 60s
+                    maxTokens: 10
+                    tokensPerFill: 10
+              backends:
+                - ai:
+                    name: anthropic
+                    provider:
+                      anthropic:
+                        model: claude-sonnet-4-20250514
+                    policies:
+                      ai:
+                        routes:
+                          /v1/messages: messages
+
+    # Listener 3: OpenAI proxy (port 9082)
+    - port: 9082
+      listeners:
+        - routes:
+            - policies:
+                # Block secrets and prompt injection attempts
+                authorization:
+                  rules:
+                    - |
+                      !string(request.body).contains("sk-proj-") &&
+                      !string(request.body).contains("sk-ant-") &&
+                      !string(request.body).contains("ghp_") &&
+                      !string(request.body).contains("OPENAI_API_KEY") &&
+                      !string(request.body).contains("ANTHROPIC_API_KEY") &&
+                      !string(request.body).contains("GITHUB_TOKEN") &&
+                      !string(request.body).contains("ignore previous instructions") &&
+                      !string(request.body).contains("ignore all previous") &&
+                      !string(request.body).contains("disregard your instructions")
+                backendAuth:
+                  key: $OPENAI_API_KEY
+                localRateLimit:
+                  - fillInterval: 60s
+                    maxTokens: 10
+                    tokensPerFill: 10
+              backends:
+                - ai:
+                    name: openai
+                    provider:
+                      openAI:
+                        model: gpt-4o
+                    policies:
+                      ai:
+                        routes:
+                          /v1/chat/completions: completions
+
+    # Listener 4: Admin UI (port 15000)
+    - port: 15000
+      listeners: []

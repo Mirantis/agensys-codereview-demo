@@ -1,0 +1,67 @@
+---
+# ============================================================================
+# ISTIO INTEGRATION (OPTIONAL)
+# ============================================================================
+# Deploy these if you're using Istio Ambient Mode
+# ============================================================================
+
+# ServiceEntry for Anthropic API
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: anthropic-external
+  namespace: agensys-codereview-demo
+spec:
+  hosts:
+  - api.anthropic.com
+  ports:
+  - number: 443
+    name: https
+    protocol: HTTPS
+  location: MESH_EXTERNAL
+  resolution: DNS
+
+# ServiceEntry for OpenAI API
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: openai-external
+  namespace: agensys-codereview-demo
+spec:
+  hosts:
+  - api.openai.com
+  ports:
+  - number: 443
+    name: https
+    protocol: HTTPS
+  location: MESH_EXTERNAL
+  resolution: DNS
+
+# AuthorizationPolicy for AgentGateway
+# Only allow specific service accounts to access the gateway
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: agentgateway-authz
+  namespace: agensys-codereview-demo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: agentgateway
+  action: ALLOW
+  rules:
+  # Allow orchestrator to access gateway
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/agensys-codereview-demo/sa/agensys-app-orchestrator"
+    to:
+    - operation:
+        ports:
+        - "9080"
+        - "9081"
+        - "9082"
+        - "9083"

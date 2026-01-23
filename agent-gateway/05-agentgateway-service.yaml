@@ -1,0 +1,47 @@
+---
+# ============================================================================
+# AGENTGATEWAY SERVICE
+# ============================================================================
+# Exposes AgentGateway ports for different traffic types
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentgateway
+  namespace: agensys-codereview-demo
+  labels:
+    app: agensys-codereview-demo
+    app.kubernetes.io/component: agentgateway
+    app.kubernetes.io/name: agentgateway
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "15020"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-proxy
+      port: 9080
+      targetPort: proxy
+      protocol: TCP
+    - name: http-admin
+      port: 15000
+      targetPort: admin-ui
+      protocol: TCP
+    - name: metrics
+      port: 15020
+      targetPort: metrics
+      protocol: TCP
+    - name: ai-anthropic
+      port: 9081
+      targetPort: ai-anthropic
+      protocol: TCP
+    - name: ai-openai
+      port: 9082
+      targetPort: ai-openai
+      protocol: TCP
+  selector:
+    app: agensys-codereview-demo
+    app.kubernetes.io/component: agentgateway
+    app.kubernetes.io/name: agentgateway

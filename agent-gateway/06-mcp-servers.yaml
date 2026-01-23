@@ -1,0 +1,120 @@
+---
+# ============================================================================
+# MCP SERVERS (OPTIONAL)
+# ============================================================================
+# Deploy these if you want to use MCP server routing through AgentGateway
+# You'll also need to add port 9083 configuration to agentgateway-config
+# ============================================================================
+
+# GitHub MCP Server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-mcp
+  namespace: agensys-codereview-demo
+  labels:
+    app: github-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-mcp
+  template:
+    metadata:
+      labels:
+        app: github-mcp
+    spec:
+      containers:
+      - name: github-mcp
+        # Replace with your actual GitHub MCP server image
+        image: your-registry/github-mcp-server:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: api-secrets
+              key: GITHUB_TOKEN
+        - name: MCP_SERVER_NAME
+          value: "github"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-mcp
+  namespace: agensys-codereview-demo
+  labels:
+    app: github-mcp
+spec:
+  selector:
+    app: github-mcp
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  type: ClusterIP
+
+# Semgrep MCP Server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: semgrep-mcp
+  namespace: agensys-codereview-demo
+  labels:
+    app: semgrep-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: semgrep-mcp
+  template:
+    metadata:
+      labels:
+        app: semgrep-mcp
+    spec:
+      containers:
+      - name: semgrep-mcp
+        # Replace with your actual Semgrep MCP server image
+        image: your-registry/semgrep-mcp-server:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: MCP_SERVER_NAME
+          value: "semgrep"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: semgrep-mcp
+  namespace: agensys-codereview-demo
+  labels:
+    app: semgrep-mcp
+spec:
+  selector:
+    app: semgrep-mcp
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  type: ClusterIP
